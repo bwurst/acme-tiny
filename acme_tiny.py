@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import argparse, subprocess, json, os, os.path, urllib2, sys, base64, binascii, time, \
-    hashlib, re, copy, textwrap
+    hashlib, re, copy, textwrap, ssl
 
 #CA = "https://acme-staging.api.letsencrypt.org"
 CA = "https://acme-v01.api.letsencrypt.org"
@@ -121,7 +121,7 @@ def get_crt(account_key, csr, acme_dir):
         wellknown_url = "http://{0}/.well-known/acme-challenge/{1}".format(
             domain, challenge['token'])
         try:
-            resp = urllib2.urlopen(wellknown_url)
+            resp = urllib2.urlopen(wellknown_url, context=ssl._create_unverified_context())
             assert resp.read().strip() == keyauthorization
         except (urllib2.HTTPError, urllib2.URLError, AssertionError):
             os.remove(wellknown_path)
