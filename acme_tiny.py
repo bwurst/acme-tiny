@@ -5,6 +5,8 @@ import argparse, subprocess, json, os, os.path, urllib2, sys, base64, binascii, 
 #CA = "https://acme-staging.api.letsencrypt.org"
 CA = "https://acme-v01.api.letsencrypt.org"
 
+log = sys.stdout
+
 def get_crt(account_key, csr, acme_dir):
 
     # helper function base64 encode for jose spec
@@ -12,7 +14,7 @@ def get_crt(account_key, csr, acme_dir):
         return base64.urlsafe_b64encode(b).replace("=", "")
 
     # parse account key to get public key
-    sys.stderr.write("Parsing account key...")
+    log.write("Parsing account key...")
     proc = subprocess.Popen(["openssl", "rsa", "-in", account_key, "-noout", "-text"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
@@ -36,7 +38,7 @@ def get_crt(account_key, csr, acme_dir):
     }
     accountkey_json = json.dumps(header['jwk'], sort_keys=True, separators=(',', ':'))
     thumbprint = _b64(hashlib.sha256(accountkey_json).digest())
-    sys.stderr.write("parsed!\n")
+    log.write("parsed!\n")
 
     # helper function make signed requests
     def _send_signed_request(url, payload):
@@ -63,7 +65,7 @@ def get_crt(account_key, csr, acme_dir):
             return e.code, e.read()
 
     # find domains
-    sys.stderr.write("Parsing CSR...")
+    log.write("Parsing CSR...")
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
@@ -78,24 +80,24 @@ def get_crt(account_key, csr, acme_dir):
         for san in subject_alt_names.group(1).split(", "):
             if san.startswith("DNS:"):
                 domains.add(san[4:])
-    sys.stderr.write("parsed!\n")
+    log.write("parsed!\n")
 
     # get the certificate domains and expiration
-    sys.stderr.write("Registering account...")
+    log.write("Registering account...")
     code, result = _send_signed_request(CA + "/acme/new-reg", {
         "resource": "new-reg",
         "agreement": "https://letsencrypt.org/documents/LE-SA-v1.0.1-July-27-2015.pdf",
     })
     if code == 201:
-        sys.stderr.write("registered!\n")
+        log.write("registered!\n")
     elif code == 409:
-        sys.stderr.write("already registered!\n")
+        log.write("already registered!\n")
     else:
         raise ValueError("Error registering: {0} {1}".format(code, result))
 
     # verify each domain
     for domain in domains:
-        sys.stderr.write("Verifying {0}...".format(domain))
+        log.write("Verifying {0}...".format(domain))
 
         # get new challenge
         code, result = _send_signed_request(CA + "/acme/new-authz", {
@@ -147,7 +149,7 @@ def get_crt(account_key, csr, acme_dir):
             if challenge_status['status'] == "pending":
                 time.sleep(2)
             elif challenge_status['status'] == "valid":
-                sys.stderr.write("verified!\n")
+                log.write("verified!\n")
                 os.remove(wellknown_path)
                 break
             else:
@@ -155,7 +157,7 @@ def get_crt(account_key, csr, acme_dir):
                     domain, challenge_status))
 
     # get the new certificate
-    sys.stderr.write("Signing certificate...")
+    log.write("Signing certificate...")
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-outform", "DER"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     csr_der, err = proc.communicate()
@@ -167,7 +169,7 @@ def get_crt(account_key, csr, acme_dir):
         raise ValueError("Error signing certificate: {0} {1}".format(code, result))
 
     # return signed certificate!
-    sys.stderr.write("signed!\n")
+    log.write("signed!\n")
     return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format(
         "\n".join(textwrap.wrap(base64.b64encode(result), 64)))
 
@@ -194,5 +196,6 @@ if __name__ == "__main__":
     parser.add_argument("--acme-dir", required=True, help="path to the .well-known/acme-challenge/ directory")
 
     args = parser.parse_args()
+    log = sys.stderr
     signed_crt = get_crt(args.account_key, args.csr, args.acme_dir)
     sys.stdout.write(signed_crt)
